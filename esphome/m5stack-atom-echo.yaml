@@ -79,6 +79,7 @@ microphone:
           constexpr float RMS_GATE_DB = -34.0f;
           constexpr float SCORE_GATE = 20.0f;
           constexpr int HIT_COUNT_ON = 3;
+          constexpr uint32_t HIT_GAP_RESET_MS = 500;
 
           constexpr uint32_t LOUD_DEBUG_MS = 250;
           constexpr uint32_t METRIC_HOLD_MS = 10000;
@@ -86,6 +87,7 @@ microphone:
           static int16_t buf[N];
           static int pos = 0;
           static int hit_count = 0;
+          static uint32_t last_buzzy_ms = 0;
           static uint32_t last_debug = 0;
           static uint32_t last_candidate_ms = 0;
           static bool metrics_are_nan = false;
@@ -133,16 +135,16 @@ microphone:
             float rms = sqrtf(sum_sq / N);
             float rms_db = 20.0f * log10f((rms / 32768.0f) + 1e-12f);
 
-            // Below loudness gate: outside active candidate window.
+            // Below loudness gate: tolerate brief gaps between matching windows.
             if (rms_db < RMS_GATE_DB) {
-              if (hit_count > 0) {
-                hit_count--;
+              uint32_t now = millis();
+
+              if (hit_count > 0 && now - last_buzzy_ms > HIT_GAP_RESET_MS) {
+                hit_count = 0;
               }
 
               bool detected = hit_count >= HIT_COUNT_ON;
               id(intercom_buzzer_detected).publish_state(detected);
-
-              uint32_t now = millis();
 
               if (!detected && hit_count == 0 && now - last_candidate_ms > METRIC_HOLD_MS) {
                 publish_nan_metrics();
@@ -200,20 +202,27 @@ microphone:
               r703 > 5.0f &&
               score > SCORE_GATE;
 
+            uint32_t now = millis();
+
             if (buzzy) {
-              if (hit_count < 12) {
+              // Treat matching windows as one sequence as long as they are
+              // no more than HIT_GAP_RESET_MS apart. Individual non-matches
+              // between them are expected with real buzzer audio.
+              if (last_buzzy_ms == 0 || now - last_buzzy_ms > HIT_GAP_RESET_MS) {
+                hit_count = 0;
+              }
+
+              last_buzzy_ms = now;
+
+              if (hit_count < HIT_COUNT_ON) {
                 hit_count++;
               }
-            } else {
-              if (hit_count > 0) {
-                hit_count--;
-              }
+            } else if (hit_count > 0 && now - last_buzzy_ms > HIT_GAP_RESET_MS) {
+              hit_count = 0;
             }
 
             bool detected = hit_count >= HIT_COUNT_ON;
             id(intercom_buzzer_detected).publish_state(detected);
-
-            uint32_t now = millis();
 
             if (buzzy || detected || now - last_debug > LOUD_DEBUG_MS) {
               last_debug = now;
