@@ -47,6 +47,8 @@ jobs:
       - name: Compile
         working-directory: esphome
         run: |
+          mkdir -p .esphome/home
           docker run --rm -v "$PWD":/config -u "$(id -u):$(id -g)" \
+            -e HOME=/config/.esphome/home -e XDG_CACHE_HOME=/config/.esphome/home/.cache \
             ghcr.io/esphome/esphome:${{ matrix.esphome }} \
             compile m5stack-atom-echo.yaml
