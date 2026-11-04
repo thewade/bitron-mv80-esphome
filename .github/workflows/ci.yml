@@ -10,13 +10,13 @@ on:
 
 jobs:
   detector-tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - run: tests/run.sh
 
   compile:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -24,7 +24,7 @@ jobs:
         esphome: [latest, beta]
     continue-on-error: ${{ matrix.esphome == 'beta' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Placeholder secrets (the real ones are never in the repo)
         working-directory: esphome
@@ -37,7 +37,7 @@ jobs:
           EOF
 
       - name: Cache toolchain
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: esphome/.esphome
           key: esphome-${{ matrix.esphome }}-${{ hashFiles('esphome/m5stack-atom-echo.yaml') }}
