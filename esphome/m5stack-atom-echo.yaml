@@ -236,34 +236,25 @@ switch:
       - lambda: capture::instance.set_enabled(false);
 
 interval:
-  # Flash the LED blue while a capture client is connected (recording mode),
-  # then restore whatever the light was doing before.
-  - interval: 400ms
+  # While a capture client is connected, flash the LED blue (0.5 s every 2 s).
+  # The pixel is written directly, bypassing the light entity, so Home Assistant
+  # sees no state changes and its own control of the light is untouched.
+  - interval: 500ms
     then:
       - lambda: |-
           static bool was_recording = false;
-          static bool blink_on = false;
-          static light::LightColorValues saved;
+          static uint8_t phase = 0;
           bool recording = capture::instance.connected();
           auto *led = id(atom_rgb_led);
+          auto *out = static_cast<light::AddressableLight *>(led->get_output());
 
           if (recording) {
-            if (!was_recording) {
-              saved = led->remote_values;
-              blink_on = false;
-            }
-            blink_on = !blink_on;
-            auto call = led->make_call();
-            call.set_transition_length(0);
-            call.set_state(blink_on);
-            call.set_rgb(0.0f, 0.0f, 1.0f);
-            call.set_brightness(1.0f);
-            call.perform();
+            bool on = (phase++ % 4) == 0;
+            (*out)[0] = on ? Color(0, 0, 255) : Color(0, 0, 0);
+            out->schedule_show();
           } else if (was_recording) {
-            auto call = led->make_call();
-            call.from_light_color_values(saved);
-            call.set_transition_length(0);
-            call.perform();
+            out->write_state(led);  // re-apply the light's real state
+            phase = 0;
           }
           was_recording = recording;
 
