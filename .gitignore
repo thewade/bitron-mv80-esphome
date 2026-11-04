@@ -1,3 +1,5 @@
 .esphome/
 secrets.yaml
 *.log
+AGENTS.md
+samples/session*.wav

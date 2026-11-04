@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  schedule:
+    # Weekly: catches breakage from new ESPHome releases even without commits.
+    - cron: "0 9 * * 1"
+  workflow_dispatch:
+
+jobs:
+  detector-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: tests/run.sh
+
+  compile:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # "latest" is the newest stable release; "beta" is allowed to fail (advance warning only).
+        esphome: [latest, beta]
+    continue-on-error: ${{ matrix.esphome == 'beta' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Placeholder secrets (the real ones are never in the repo)
+        working-directory: esphome
+        run: |
+          cat > secrets.yaml <<EOF
+          wifi_ssid: ci
+          wifi_password: ci-password
+          m5stack_atom_echo__encryption_key: "$(printf 'ci-placeholder-key-not-a-secret!!' | head -c 32 | base64)"
+          capture_token: 00000000000000000000000000000000
+          EOF
+
+      - name: Cache toolchain
+        uses: actions/cache@v4
+        with:
+          path: esphome/.esphome
+          key: esphome-${{ matrix.esphome }}-${{ hashFiles('esphome/m5stack-atom-echo.yaml') }}
+          restore-keys: |
+            esphome-${{ matrix.esphome }}-
+
+      - name: Compile
+        working-directory: esphome
+        run: |
+          docker run --rm -v "$PWD":/config -u "$(id -u):$(id -g)" \
+            ghcr.io/esphome/esphome:${{ matrix.esphome }} \
+            compile m5stack-atom-echo.yaml

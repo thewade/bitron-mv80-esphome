@@ -1,4 +1,5 @@
 substitutions:
+  capture_token: !secret capture_token
   name: "m5stack-atom-echo"
   friendly_name: M5Stack Atom Echo
 
@@ -7,10 +8,15 @@ esphome:
   name_add_mac_suffix: false
   friendly_name: ${friendly_name}
   min_version: 2025.5.0
+  includes:
+    - buzzer_detector.h
+    - audio_capture.h
 
   on_boot:
     priority: -100
     then:
+      - lambda: |-
+          capture::instance.set_token("${capture_token}");
       - delay: 2s
       - microphone.capture:
           id: echo_microphone
@@ -31,6 +37,7 @@ api:
 
 ota:
   - platform: esphome
+    encryption:
 
 wifi:
   ssid: !secret wifi_ssid
@@ -56,177 +63,36 @@ microphone:
 
     on_data:
       - lambda: |-
-          // Quick-and-dirty Bitron MV80-ish intercom buzzer detector.
-          //
-          // 16 kHz, 512 sample window:
-          //   window length = 32 ms
-          //   bin spacing = 31.25 Hz
-          //
-          // 50% overlap:
-          //   HOP = 256 samples
-          //   new analysis every 16 ms
-          //
-          // Target bins:
-          //   13 -> ~406 Hz
-          //   22/23 -> ~688 / ~719 Hz
-          //   67 -> ~2094 Hz
-          //   90 -> ~2812 Hz
+          // Detection logic lives in buzzer_detector.h (also unit-tested
+          // against samples/ by tests/run.sh).
+          static buzzer::Detector detector;
+          buzzer::Result r;
+          uint32_t now = millis();
 
-          constexpr int N = 512;
-          constexpr int HOP = 256;
-          constexpr float PI = 3.14159265359f;
+          capture::instance.feed(x.data(), x.size(), now);
 
-          constexpr float RMS_GATE_DB = -34.0f;
-          constexpr float SCORE_GATE = 20.0f;
-          constexpr int HIT_COUNT_ON = 3;
+          for (size_t i = 0; i + 1 < x.size(); i += 2) {
+            int16_t s = (int16_t) ((uint16_t) x[i] | ((uint16_t) x[i + 1] << 8));
+            if (!detector.push(s, now, r))
+              continue;
 
-          constexpr uint32_t LOUD_DEBUG_MS = 250;
-          constexpr uint32_t METRIC_HOLD_MS = 10000;
+            id(intercom_buzzer_detected).publish_state(r.detected);
 
-          static int16_t buf[N];
-          static int pos = 0;
-          static int hit_count = 0;
-          static uint32_t last_debug = 0;
-          static uint32_t last_candidate_ms = 0;
-          static bool metrics_are_nan = false;
-
-          auto shift_overlap = [&]() {
-            memmove(buf, buf + HOP, (N - HOP) * sizeof(int16_t));
-            pos = N - HOP;
-          };
-
-          auto publish_nan_metrics = [&]() {
-            if (!metrics_are_nan) {
+            if (r.publish_nan) {
               id(intercom_calc_rms_db).publish_state(NAN);
               id(intercom_buzzer_score).publish_state(NAN);
               id(intercom_ratio_407).publish_state(NAN);
               id(intercom_ratio_703).publish_state(NAN);
               id(intercom_ratio_high).publish_state(NAN);
-              metrics_are_nan = true;
-            }
-          };
-
-          auto read_i16_le = [](uint8_t lo, uint8_t hi) -> int16_t {
-            return (int16_t) ((uint16_t) lo | ((uint16_t) hi << 8));
-          };
-
-          for (size_t i = 0; i + 1 < x.size(); i += 2) {
-            buf[pos++] = read_i16_le(x[i], x[i + 1]);
-
-            if (pos < N) {
-              continue;
             }
 
-            float mean = 0.0f;
-            for (int j = 0; j < N; j++) {
-              mean += buf[j];
+            if (r.publish_metrics) {
+              id(intercom_calc_rms_db).publish_state(r.rms_db);
+              id(intercom_buzzer_score).publish_state(r.score);
+              id(intercom_ratio_407).publish_state(r.r407);
+              id(intercom_ratio_703).publish_state(r.r703);
+              id(intercom_ratio_high).publish_state(r.rhigh);
             }
-            mean /= N;
-
-            float sum_sq = 0.0f;
-
-            for (int j = 0; j < N; j++) {
-              float centered = (float) buf[j] - mean;
-              sum_sq += centered * centered;
-            }
-
-            float rms = sqrtf(sum_sq / N);
-            float rms_db = 20.0f * log10f((rms / 32768.0f) + 1e-12f);
-
-            // Below loudness gate: outside active candidate window.
-            if (rms_db < RMS_GATE_DB) {
-              if (hit_count > 0) {
-                hit_count--;
-              }
-
-              bool detected = hit_count >= HIT_COUNT_ON;
-              id(intercom_buzzer_detected).publish_state(detected);
-
-              uint32_t now = millis();
-
-              if (!detected && hit_count == 0 && now - last_candidate_ms > METRIC_HOLD_MS) {
-                publish_nan_metrics();
-              }
-
-              shift_overlap();
-              continue;
-            }
-
-            auto goertzel_power = [&](int bin) -> float {
-              float omega = 2.0f * PI * (float) bin / (float) N;
-              float coeff = 2.0f * cosf(omega);
-
-              float q0 = 0.0f;
-              float q1 = 0.0f;
-              float q2 = 0.0f;
-
-              for (int j = 0; j < N; j++) {
-                float s = (float) buf[j] - mean;
-
-                // Hann window.
-                float w = 0.5f * (1.0f - cosf(2.0f * PI * (float) j / (float) (N - 1)));
-                s *= w;
-
-                q0 = coeff * q1 - q2 + s;
-                q2 = q1;
-                q1 = q0;
-              }
-
-              return q1 * q1 + q2 * q2 - coeff * q1 * q2;
-            };
-
-            float p407 = goertzel_power(13);
-
-            float p703a = goertzel_power(22);
-            float p703b = goertzel_power(23);
-            float p703 = p703a > p703b ? p703a : p703b;
-
-            float p2100 = goertzel_power(67);
-            float p2810 = goertzel_power(90);
-            float phigh = p2100 > p2810 ? p2100 : p2810;
-
-            float energy = sum_sq + 1.0f;
-
-            float r407 = p407 / energy;
-            float r703 = p703 / energy;
-            float rhigh = phigh / energy;
-
-            float score = r407 + r703 + (0.25f * rhigh);
-
-            last_candidate_ms = millis();
-
-            bool buzzy =
-              r407 > 5.0f &&
-              r703 > 5.0f &&
-              score > SCORE_GATE;
-
-            if (buzzy) {
-              if (hit_count < 12) {
-                hit_count++;
-              }
-            } else {
-              if (hit_count > 0) {
-                hit_count--;
-              }
-            }
-
-            bool detected = hit_count >= HIT_COUNT_ON;
-            id(intercom_buzzer_detected).publish_state(detected);
-
-            uint32_t now = millis();
-
-            if (buzzy || detected || now - last_debug > LOUD_DEBUG_MS) {
-              last_debug = now;
-              metrics_are_nan = false;
-
-              id(intercom_calc_rms_db).publish_state(rms_db);
-              id(intercom_buzzer_score).publish_state(score);
-              id(intercom_ratio_407).publish_state(r407);
-              id(intercom_ratio_703).publish_state(r703);
-              id(intercom_ratio_high).publish_state(rhigh);
-            }
-
-            shift_overlap();
           }
 
 speaker:
@@ -307,28 +173,32 @@ sensor:
   - platform: template
     id: intercom_buzzer_score
     name: "Intercom Buzzer Score"
-    accuracy_decimals: 4
+    unit_of_measurement: "dB"
+    accuracy_decimals: 1
     update_interval: never
     force_update: true
 
   - platform: template
     id: intercom_ratio_407
     name: "Intercom 407 Ratio"
-    accuracy_decimals: 4
+    unit_of_measurement: "dB"
+    accuracy_decimals: 1
     update_interval: never
     force_update: true
 
   - platform: template
     id: intercom_ratio_703
     name: "Intercom 703 Ratio"
-    accuracy_decimals: 4
+    unit_of_measurement: "dB"
+    accuracy_decimals: 1
     update_interval: never
     force_update: true
 
   - platform: template
     id: intercom_ratio_high
     name: "Intercom High Harmonic Ratio"
-    accuracy_decimals: 4
+    unit_of_measurement: "dB"
+    accuracy_decimals: 1
     update_interval: never
     force_update: true
 
@@ -350,6 +220,52 @@ binary_sensor:
     filters:
       - delayed_on: 30ms
       - delayed_off: 30ms
+
+switch:
+  # Audio streaming for offline testing (tools/capture.py). Off after every
+  # reboot; the client also needs the capture_token secret.
+  - platform: template
+    name: "Audio Capture"
+    id: audio_capture_enabled
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    entity_category: diagnostic
+    turn_on_action:
+      - lambda: capture::instance.set_enabled(true);
+    turn_off_action:
+      - lambda: capture::instance.set_enabled(false);
+
+interval:
+  # Flash the LED blue while a capture client is connected (recording mode),
+  # then restore whatever the light was doing before.
+  - interval: 400ms
+    then:
+      - lambda: |-
+          static bool was_recording = false;
+          static bool blink_on = false;
+          static light::LightColorValues saved;
+          bool recording = capture::instance.connected();
+          auto *led = id(atom_rgb_led);
+
+          if (recording) {
+            if (!was_recording) {
+              saved = led->remote_values;
+              blink_on = false;
+            }
+            blink_on = !blink_on;
+            auto call = led->make_call();
+            call.set_transition_length(0);
+            call.set_state(blink_on);
+            call.set_rgb(0.0f, 0.0f, 1.0f);
+            call.set_brightness(1.0f);
+            call.perform();
+          } else if (was_recording) {
+            auto call = led->make_call();
+            call.from_light_color_values(saved);
+            call.set_transition_length(0);
+            call.perform();
+          }
+          was_recording = recording;
 
 light:
   - platform: esp32_rmt_led_strip
