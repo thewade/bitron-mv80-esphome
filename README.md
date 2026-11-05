@@ -2,9 +2,9 @@
 
 ESPHome-based detector for the buzzer/ring signal from a Bitron MV80 intercom using the microphone in an M5Stack Atom Echo.
 
-The detector samples the microphone at 16 kHz and analyzes overlapping 512-sample windows using Goertzel filters. The buzzer is a set of narrow tones at ~406, ~703, ~2109 and ~2812 Hz that alternate every ~100 ms, so the detector averages power spectra over ~270 ms and measures how far each tone stands out above the spectrum around it ("prominence", in dB). A match needs the 703 Hz tone plus at least two of the other three to stand out by more than 10 dB, held for a few windows (with a short gap tolerance). This is independent of loudness, so it works whether the microphone hears the buzzer faintly (about -35 dB RMS from across the house) or loudly.
+The detector samples the microphone at 16 kHz and analyzes overlapping 512-sample windows using Goertzel filters. The buzzer is a set of narrow tones at ~406, ~703, ~2109 and ~2812 Hz that alternate every ~100 ms, so the detector averages power spectra over ~270 ms and measures how far each tone stands out above the spectrum around it ("prominence", in dB). A match needs the 703 Hz tone plus at least two of the other three to stand out by more than 16 dB (real presses score about 27-32 dB; household noise has reached about 12 dB), held for a few windows (with a short gap tolerance). This is independent of loudness, so it works whether the microphone hears the buzzer faintly (about -35 dB RMS from across the house) or loudly.
 
-Diagnostic sensors expose the calculated RMS level, the per-tone prominences (the "407 Ratio", "703 Ratio" and "High Harmonic Ratio" sensors, now in dB), and the buzzer score (the weakest prominence that must pass, so a match is score > 10 dB).
+Diagnostic sensors expose the calculated RMS level, the per-tone prominences (the "407 Ratio", "703 Ratio" and "High Harmonic Ratio" sensors, now in dB), and the buzzer score (the weakest prominence that must pass, so a match is score > 16 dB).
 
 The Atom Echo's speaker remains available for Home Assistant audio/TTS; microphone capture is paused while the speaker is active.
 

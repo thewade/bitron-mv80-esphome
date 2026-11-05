@@ -32,7 +32,7 @@ constexpr float PI = 3.14159265359f;
 
 constexpr int NUM_TONES = 4;
 constexpr int AVG_WINDOWS = 16;  // ~272 ms of overlapped windows
-constexpr float MIN_PROMINENCE_DB = 10.0f;
+constexpr float MIN_PROMINENCE_DB = 16.0f;
 // Noise floor added to both sides of the prominence ratio: white noise of
 // ~2 LSB RMS (Hann window power gain 3N/8). Below this a spectrum is "silence",
 // which keeps digital silence and synthetic noise-free tones from scoring.

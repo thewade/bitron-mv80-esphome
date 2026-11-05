@@ -63,4 +63,9 @@ done
 if [ -e samples/session1.wav ]; then
   "$tmp/buzzer_test" samples/session1.wav --expect-count 4 || fail=1
 fi
+# Optional local-only false positives cut from long captures (gitignored).
+for f in samples/session_fp*.wav; do
+  [ -e "$f" ] || continue
+  "$tmp/buzzer_test" "$f" --expect-none || fail=1
+done
 exit $fail
