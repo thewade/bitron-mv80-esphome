@@ -38,7 +38,7 @@ def phase(i):
 write("synthetic_buzz", [phase(i) for i in range(n)])
 
 # Robustness: the real buzzer at low level with added noise must still be detected.
-with wave.open("samples/buzzer.wav") as r:
+with wave.open("samples/buzzer_phone.wav") as r:
     rate, raw = r.getframerate(), r.readframes(r.getnframes())
 src = struct.unpack("<%dh" % (len(raw) // 2), raw)
 for gain, noise in ((0.25, 300), (0.1, 150)):

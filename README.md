@@ -20,7 +20,7 @@ The firmware serves its raw microphone stream (16 kHz mono PCM, exactly what the
 
 For a long unattended run (hours or a day, about 115 MB/hour) use `python3 tools/capture.py <device-ip> samples/session --chunk 30`. It streams to `samples/session_YYYYmmdd_HHMMSS.wav` files every 30 minutes, reconnects with a new file after any drop, and keeps a `samples/session.log`. A position in a file is the filename's local time plus the offset, so it lines up with Home Assistant event times. These files are gitignored.
 
-Name recordings `samples/buzzer_*.wav` (must detect) or `samples/negative_*.wav` (must not detect), then run `tests/run.sh`. Streaming is off after every reboot: turn on the "Audio Capture" switch first. A client must also send the shared token (`capture_token` in `esphome/secrets.yaml`, which is gitignored) or it is disconnected; the stream itself is unencrypted, so only use it on a trusted network.
+`samples/buzzer_phone.wav` is a phone recording of the buzzer at a different level and 48 kHz; it checks the detector is not tuned only to the device microphone. Name recordings `samples/buzzer_*.wav` (must detect) or `samples/negative_*.wav` (must not detect), then run `tests/run.sh`. Streaming is off after every reboot: turn on the "Audio Capture" switch first. A client must also send the shared token (`capture_token` in `esphome/secrets.yaml`, which is gitignored) or it is disconnected; the stream itself is unencrypted, so only use it on a trusted network.
 
 ## CI
 
