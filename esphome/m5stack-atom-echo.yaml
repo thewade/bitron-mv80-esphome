@@ -11,6 +11,7 @@ esphome:
   includes:
     - buzzer_detector.h
     - audio_capture.h
+    - audio_queue.h
 
   on_boot:
     priority: -100
@@ -62,38 +63,9 @@ microphone:
     correct_dc_offset: true
 
     on_data:
+      # Runs in the microphone task (4 KB stack): only hand the audio off.
       - lambda: |-
-          // Detection logic lives in buzzer_detector.h (also unit-tested
-          // against samples/ by tests/run.sh).
-          static buzzer::Detector detector;
-          buzzer::Result r;
-          uint32_t now = millis();
-
-          capture::instance.feed(x.data(), x.size(), now);
-
-          for (size_t i = 0; i + 1 < x.size(); i += 2) {
-            int16_t s = (int16_t) ((uint16_t) x[i] | ((uint16_t) x[i + 1] << 8));
-            if (!detector.push(s, now, r))
-              continue;
-
-            id(intercom_buzzer_detected).publish_state(r.detected);
-
-            if (r.publish_nan) {
-              id(intercom_calc_rms_db).publish_state(NAN);
-              id(intercom_buzzer_score).publish_state(NAN);
-              id(intercom_ratio_407).publish_state(NAN);
-              id(intercom_ratio_703).publish_state(NAN);
-              id(intercom_ratio_high).publish_state(NAN);
-            }
-
-            if (r.publish_metrics) {
-              id(intercom_calc_rms_db).publish_state(r.rms_db);
-              id(intercom_buzzer_score).publish_state(r.score);
-              id(intercom_ratio_407).publish_state(r.r407);
-              id(intercom_ratio_703).publish_state(r.r703);
-              id(intercom_ratio_high).publish_state(r.rhigh);
-            }
-          }
+          audioq::instance.push(x.data(), x.size());
 
 speaker:
   - platform: i2s_audio
@@ -146,7 +118,29 @@ media_player:
       - microphone.capture:
           id: echo_microphone
     
+# Diagnostics: tell a crash/brown-out reboot from a Wi-Fi/API drop.
+debug:
+  update_interval: 60s
+
+text_sensor:
+  - platform: debug
+    reset_reason:
+      name: "Reset Reason"
+      entity_category: diagnostic
+
 sensor:
+  - platform: uptime
+    name: "Uptime"
+    entity_category: diagnostic
+    update_interval: 60s
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    entity_category: diagnostic
+    update_interval: 60s
+  - platform: debug
+    free:
+      name: "Free Heap"
+      entity_category: diagnostic
   - platform: sound_level
     microphone: echo_microphone
     measurement_duration: 250ms
@@ -236,6 +230,50 @@ switch:
       - lambda: capture::instance.set_enabled(false);
 
 interval:
+  # Main-loop consumer of the microphone queue: detection, capture streaming
+  # and state publishing all happen here (thread-safe, 8 KB stack).
+  - interval: 10ms
+    then:
+      - lambda: |-
+          // Detection logic lives in buzzer_detector.h (also unit-tested
+          // against samples/ by tests/run.sh).
+          static buzzer::Detector detector;
+          static uint8_t chunk[1024];
+          buzzer::Result r;
+
+          for (int rounds = 0; rounds < 8; rounds++) {
+            size_t n = audioq::instance.pop(chunk, sizeof(chunk));
+            if (n == 0)
+              break;
+            uint32_t now = millis();
+
+            capture::instance.feed(chunk, n, now);
+
+            for (size_t i = 0; i + 1 < n; i += 2) {
+              int16_t s = (int16_t) ((uint16_t) chunk[i] | ((uint16_t) chunk[i + 1] << 8));
+              if (!detector.push(s, now, r))
+                continue;
+
+              id(intercom_buzzer_detected).publish_state(r.detected);
+
+              if (r.publish_nan) {
+                id(intercom_calc_rms_db).publish_state(NAN);
+                id(intercom_buzzer_score).publish_state(NAN);
+                id(intercom_ratio_407).publish_state(NAN);
+                id(intercom_ratio_703).publish_state(NAN);
+                id(intercom_ratio_high).publish_state(NAN);
+              }
+
+              if (r.publish_metrics) {
+                id(intercom_calc_rms_db).publish_state(r.rms_db);
+                id(intercom_buzzer_score).publish_state(r.score);
+                id(intercom_ratio_407).publish_state(r.r407);
+                id(intercom_ratio_703).publish_state(r.r703);
+                id(intercom_ratio_high).publish_state(r.rhigh);
+              }
+            }
+          }
+
   # While a capture client is connected, flash the LED blue (0.5 s every 2 s).
   # The pixel is written directly, bypassing the light entity, so Home Assistant
   # sees no state changes and its own control of the light is untouched.
