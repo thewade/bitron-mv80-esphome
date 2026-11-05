@@ -14,6 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - run: tests/run.sh
+      - run: python3 -m unittest discover -s tests -p 'test_*.py'
 
   compile:
     runs-on: ubuntu-24.04

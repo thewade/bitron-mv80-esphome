@@ -4,3 +4,8 @@ secrets.yaml
 AGENTS.md
 samples/session*.wav
 .env
+
+.review-cache/
+samples/review/
+samples/*.timing.jsonl
+__pycache__/

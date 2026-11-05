@@ -6,6 +6,7 @@ Requirements: Bash, Python 3, and a C++17 compiler (`g++`). From the repository 
 
 ```sh
 tests/run.sh
+python3 -m unittest discover -s tests -p 'test_*.py'
 ```
 
 The script builds a temporary host harness for `esphome/buzzer_detector.h`, runs the sample recordings and synthetic cases, and removes its temporary files afterward. Recordings named `samples/buzzer*.wav` must trigger detection; `samples/negative*.wav` must not. Synthetic cases cover noise, individual tones, and buzzer signals, including recordings with reduced level and added noise.
@@ -57,3 +58,44 @@ python3 tools/capture.py <device-ip> samples/session --chunk 30 86400
 ```
 
 This records for up to 24 hours, reconnects after connection drops, and writes timestamped WAV files plus `samples/session.log`. Omit the duration to record until interrupted. Session files are gitignored. Streaming is unencrypted; use a trusted network.
+
+### Review Home Assistant events and recordings
+
+`tools/review.py` uses Python 3's standard library. For event queries, add `HA_URL`,
+`HA_TOKEN` (a long-lived access token), and `HA_ENTITY` (the detection binary sensor
+entity ID) to the local `.env`, or set them in the environment. Environment values
+take precedence. Simple shell assignments are supported; shell expressions are not
+executed. `--entity` overrides `HA_ENTITY`. These are Home Assistant entity IDs,
+not device IDs. If needed for manual capture-switch control, keep its entity ID
+in `.env` as `HA_CAPTURE_ENTITY`; the tools do not change that switch.
+
+All event timestamps must include a UTC offset to avoid timezone ambiguity:
+
+```sh
+python3 tools/review.py events --start 2026-11-05T15:00:00-05:00 --end 2026-11-05T16:00:00-05:00
+python3 tools/review.py clip --at 2026-11-05T15:42:18-05:00 --label false-positive --detector
+```
+
+Event queries print detection transitions and cache responses in the gitignored
+`.review-cache/` directory. Use `--refresh` for recent ranges whose history may
+still change. A missed detection needs a supplied time because HA has no event.
+
+Clipping scans `samples/` by default (`--sessions` selects another directory).
+Labels are `correct`, `false-positive`, and `missed`. The default window is five
+seconds before and after the event; adjust `--before` and `--after` as needed.
+The tool writes a WAV and JSON label/source metadata to gitignored
+`samples/review/`. `--output` selects another path; existing outputs are refused.
+`--detector` builds the host harness temporarily and prints a compact summary
+(requires `g++`). Labels do not automatically add recordings to the test suite.
+
+New captures write a `.timing.jsonl` sidecar beside each WAV, mapping frame ranges
+to UTC receive times. Keep the sidecar with the recording. Review uses these
+ranges rather than assuming the sample clock tracks elapsed wall time across
+missing audio. Receive times include device/network buffering; allow a margin
+around events. Gaps are omitted from clips, not filled with silence, and source
+ranges are recorded in the clip metadata. Overlapping captures may both contribute.
+
+For old timestamped session files without sidecars, specify the recording's UTC
+offset, for example `--legacy-offset=-05:00`. Alignment is approximate and can drift
+when audio was dropped; widen the clip window as needed. Exact timing cannot be
+recovered from old WAVs alone. Sidecars, cached history, and review clips stay local.

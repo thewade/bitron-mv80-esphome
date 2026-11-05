@@ -6,8 +6,8 @@ usage: capture.py <device-ip> <out.wav> [seconds]
 
 Long-run mode (--chunk): writes <prefix>_YYYYmmdd_HHMMSS.wav every <minutes>,
 streaming to disk, and reconnects (with a new file) after any drop. The start
-time in each filename is local wall-clock time, so a position in a file is
-filename time + offset, which lines up with Home Assistant event times.
+time in each filename is local wall-clock time. A .timing.jsonl sidecar maps
+sample ranges to UTC receive times for review.py; filenames alone can drift.
 
 Turn on the "Audio Capture" switch on the device first (it is off after every
 reboot). The shared token is read from $CAPTURE_TOKEN or the capture_token key
@@ -19,6 +19,7 @@ A live level meter shows whether the mic hears anything.
 """
 import array
 import math
+import json
 import os
 import pathlib
 import re
@@ -51,6 +52,31 @@ def open_wav(path):
     return w
 
 
+class TimedWriter:
+    """Preserve byte alignment and map each block to its wall-clock receive time."""
+    def __init__(self, path):
+        self.wav = open_wav(path)
+        self.timing = open(pathlib.Path(path).with_suffix('.timing.jsonl'), 'w', buffering=1)
+        self.frames = 0
+        self.pending = b''
+
+    def write(self, data, received_at):
+        data = self.pending + data
+        size = len(data) // 2 * 2
+        self.pending = data[size:]
+        if not size:
+            return
+        first = self.frames
+        self.wav.writeframes(data[:size])
+        self.frames += size // 2
+        self.timing.write(json.dumps({'first_frame': first, 'end_frame': self.frames,
+                                      'received_at': received_at}) + '\n')
+
+    def close(self):
+        self.wav.close()
+        self.timing.close()
+
+
 def level_line(tail, seconds):
     s = array.array("h")
     s.frombytes(tail[: len(tail) // 2 * 2])
@@ -68,40 +94,34 @@ def record_single(host, out, limit, token):
     sock.settimeout(5)
     print(f"connected to {host}:{PORT}, recording to {out} (Ctrl-C to stop)")
 
-    pcm = bytearray()
-    start = last_print = time.time()
+    writer = TimedWriter(out)
+    start = last_print = time.monotonic()
     try:
-        while limit is None or time.time() - start < limit:
+        while limit is None or time.monotonic() - start < limit:
             try:
                 data = sock.recv(8192)
             except socket.timeout:
                 continue
+            received_at = time.time()
             if not data:
                 print("\ndevice closed the connection")
                 break
-            pcm += data
-            now = time.time()
+            writer.write(data, received_at)
+            now = time.monotonic()
             if now - last_print >= 0.25:
-                print(level_line(bytes(pcm[-(RATE // 4) * 2:]), len(pcm) / 2 / RATE), end="", flush=True)
+                print(level_line(data[:len(data)//2*2], writer.frames / RATE), end="", flush=True)
                 last_print = now
     except KeyboardInterrupt:
         pass
     finally:
         sock.close()
-
-    n = len(pcm) // 2
-    with wave.open(out, "wb") as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(RATE)
-        w.writeframes(bytes(pcm[: n * 2]))
-    wall = time.time() - start
-    print(f"\nsaved {n / RATE:.1f}s of audio ({wall:.1f}s wall; a shortfall means dropped chunks)")
+        writer.close()
+    print(f"\nsaved {writer.frames / RATE:.1f}s of audio; timing sidecar written")
 
 
 def record_chunked(host, prefix, limit, chunk_s, token):
     """Stream to disk in time-stamped files; every (re)connect starts a new file."""
-    start = time.time()
+    start = time.monotonic()
     log = open(f"{prefix}.log", "a", buffering=1)
 
     def note(msg):
@@ -111,7 +131,7 @@ def record_chunked(host, prefix, limit, chunk_s, token):
 
     note(f"start {host}, chunk {chunk_s:.0f}s")
     try:
-        while limit is None or time.time() - start < limit:
+        while limit is None or time.monotonic() - start < limit:
             try:
                 sock = socket.create_connection((host, PORT), timeout=10)
                 sock.sendall(token.encode())
@@ -122,9 +142,10 @@ def record_chunked(host, prefix, limit, chunk_s, token):
                 continue
 
             wav, frames, name = None, 0, None
+            pending = b''
             last_data = last_print = time.time()
             try:
-                while limit is None or time.time() - start < limit:
+                while limit is None or time.monotonic() - start < limit:
                     try:
                         data = sock.recv(8192)
                     except socket.timeout:
@@ -138,16 +159,20 @@ def record_chunked(host, prefix, limit, chunk_s, token):
                     last_data = time.time()
                     if wav is None:
                         name = f"{prefix}_{time.strftime('%Y%m%d_%H%M%S')}.wav"
-                        wav = open_wav(name)
+                        if pathlib.Path(name).exists():
+                            name = name[:-4] + f"_{time.time_ns()}.wav"
+                        wav = TimedWriter(name)
+                        wav.pending = pending
                         frames = 0
                         note(f"recording {name}")
-                    wav.writeframes(data[: len(data) // 2 * 2])
-                    frames += len(data) // 2
+                    wav.write(data, last_data)
+                    frames = wav.frames
                     if frames >= chunk_s * RATE:
+                        pending = wav.pending
                         wav.close()
                         wav = None
                     if last_data - last_print >= 1:
-                        print(level_line(data, time.time() - start), end="", flush=True)
+                        print(level_line(data[:len(data)//2*2], time.monotonic() - start), end="", flush=True)
                         last_print = last_data
             finally:
                 sock.close()
