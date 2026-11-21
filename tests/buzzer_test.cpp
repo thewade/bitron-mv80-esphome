@@ -1,4 +1,4 @@
-// Runs the real detector (esphome/buzzer_detector.h) against WAV files.
+// Runs the real detector against WAV files.
 //
 // usage: buzzer_test <wav> [--expect-detect|--expect-none|--expect-count N] [--verbose]
 //
@@ -11,7 +11,7 @@
 #include <string>
 #include <vector>
 
-#include "../esphome/buzzer_detector.h"
+#include "../esphome/components/intercom_audio/buzzer_detector.h"
 
 static bool read_wav(const char *path, std::vector<int16_t> &out, uint32_t &rate) {
   FILE *f = fopen(path, "rb");

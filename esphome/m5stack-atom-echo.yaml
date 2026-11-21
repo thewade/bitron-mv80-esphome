@@ -2,17 +2,13 @@ substitutions:
   capture_token: !secret capture_token
   name: "m5stack-atom-echo"
   friendly_name: M5Stack Atom Echo
+  component_source: github://thewade/bitron-mv80-esphome@rework
 
 esphome:
   name: ${name}
   name_add_mac_suffix: false
   friendly_name: ${friendly_name}
   min_version: 2025.5.0
-  includes:
-    - buzzer_detector.h
-    - audio_capture.h
-    - audio_queue.h
-
   on_boot:
     priority: -100
     then:
@@ -21,6 +17,12 @@ esphome:
       - delay: 2s
       - microphone.capture:
           id: echo_microphone
+
+external_components:
+  - source: ${component_source}
+    components: [intercom_audio]
+
+intercom_audio:
 
 esp32:
   variant: esp32

@@ -9,13 +9,18 @@ tests/run.sh
 python3 -m unittest discover -s tests -p 'test_*.py'
 ```
 
-The script builds a temporary host harness for `esphome/buzzer_detector.h`, runs the sample recordings and synthetic cases, and removes its temporary files afterward. Recordings named `samples/buzzer*.wav` must trigger detection; `samples/negative*.wav` must not. Synthetic cases cover noise, individual tones, and buzzer signals, including recordings with reduced level and added noise.
+The script builds a temporary host harness for `esphome/components/intercom_audio/buzzer_detector.h`, runs the sample recordings and synthetic cases, and removes its temporary files afterward. Recordings named `samples/buzzer*.wav` must trigger detection; `samples/negative*.wav` must not. Synthetic cases cover noise, individual tones, and buzzer signals, including recordings with reduced level and added noise.
 
 Run the tests before flashing firmware. Only commit recordings that are suitable for public distribution; local session recordings are gitignored.
 
 ## CI
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on pushes, pull requests, manual dispatch, and Mondays at 09:00 UTC. It runs the host tests and compiles the firmware against the `latest` and `beta` ESPHome container images. The stable build must pass; beta failures are allowed. CI generates placeholder secrets and caches the ESPHome toolchain. It does not flash a device.
+
+The YAML defaults to fetching the external component from GitHub. To build the
+component in this checkout instead, pass `-s component_source components` before
+the ESPHome command, with the configuration directory set to `esphome/`. CI and
+the flash helper do this so they compile local changes.
 
 ## Local configuration
 
