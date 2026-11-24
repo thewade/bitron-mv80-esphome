@@ -80,7 +80,12 @@ struct Result {
 
 class Detector {
  public:
-  Detector() {
+  explicit Detector(float min_prominence_db = MIN_PROMINENCE_DB, float min_2812_prominence_db = MIN_2812_PROMINENCE_DB,
+                    int hit_count_on = HIT_COUNT_ON, uint32_t hit_gap_reset_ms = HIT_GAP_RESET_MS)
+      : min_prominence_db_(min_prominence_db),
+        min_2812_prominence_db_(min_2812_prominence_db),
+        hit_count_on_(hit_count_on),
+        hit_gap_reset_ms_(hit_gap_reset_ms) {
     for (int t = 0; t < NUM_TONES; t++) {
       int b = t * BINS_PER_TONE;
       for (int k = 0; k < MAX_TONE_BINS; k++)
@@ -187,22 +192,22 @@ class Detector {
         }
     float needed = others[MIN_TONES - 2];
     out.score = out.prom[TONE_REQUIRED] < needed ? out.prom[TONE_REQUIRED] : needed;
-    out.buzzy = out.score > MIN_PROMINENCE_DB && out.prom[TONE_2812] > MIN_2812_PROMINENCE_DB;
+    out.buzzy = out.score > min_prominence_db_ && out.prom[TONE_2812] > min_2812_prominence_db_;
     out.r407 = out.prom[0];
     out.r703 = out.prom[1];
     out.rhigh = out.prom[2] > out.prom[3] ? out.prom[2] : out.prom[3];
 
     if (out.buzzy) {
-      // Matching windows form one sequence while no more than HIT_GAP_RESET_MS apart.
-      if (last_buzzy_ms_ == 0 || now - last_buzzy_ms_ > HIT_GAP_RESET_MS)
+      // Matching windows form one sequence while no more than hit_gap_reset_ms_ apart.
+      if (last_buzzy_ms_ == 0 || now - last_buzzy_ms_ > hit_gap_reset_ms_)
         hit_count_ = 0;
       last_buzzy_ms_ = now;
-      if (hit_count_ < HIT_COUNT_ON)
+      if (hit_count_ < hit_count_on_)
         hit_count_++;
-    } else if (hit_count_ > 0 && now - last_buzzy_ms_ > HIT_GAP_RESET_MS) {
+    } else if (hit_count_ > 0 && now - last_buzzy_ms_ > hit_gap_reset_ms_) {
       hit_count_ = 0;
     }
-    out.detected = hit_count_ >= HIT_COUNT_ON;
+    out.detected = hit_count_ >= hit_count_on_;
 
     if (!out.gated || out.buzzy)
       last_candidate_ms_ = now;
@@ -217,6 +222,10 @@ class Detector {
     }
   }
 
+  const float min_prominence_db_;
+  const float min_2812_prominence_db_;
+  const int hit_count_on_;
+  const uint32_t hit_gap_reset_ms_;
   int16_t buf_[N];
   float win_[N];
   float hann_[N];

@@ -9,6 +9,8 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
 g++ -O2 -Wall -Wextra -std=c++17 -o "$tmp/buzzer_test" tests/buzzer_test.cpp
+g++ -O2 -Wall -Wextra -std=c++17 -o "$tmp/buzzer_settings_test" tests/buzzer_settings_test.cpp
+"$tmp/buzzer_settings_test"
 
 python3 - "$tmp" <<'EOF'
 import math, random, struct, sys, wave

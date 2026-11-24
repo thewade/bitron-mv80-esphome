@@ -41,7 +41,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: esphome/.esphome
-          key: esphome-${{ matrix.esphome }}-${{ hashFiles('esphome/m5stack-atom-echo.yaml') }}
+          key: esphome-${{ matrix.esphome }}-${{ hashFiles('esphome/m5stack-atom-echo.yaml', 'esphome/packages/m5stack-atom-echo.yaml') }}
           restore-keys: |
             esphome-${{ matrix.esphome }}-
 
