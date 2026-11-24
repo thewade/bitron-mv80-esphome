@@ -16,6 +16,8 @@
 // speech have no isolated peaks at these frequencies; the buzzer always has
 // 703 Hz (its strongest tone) plus at least two of the other three. Requiring
 // 703 Hz also rejects harmonic series of 406 Hz, which hit the other bands.
+// Also require a weaker 2812 Hz peak to reject matches supported only by
+// 406, 703, and 2109 Hz.
 //
 // 16 kHz, 512 sample window (32 ms, 31.25 Hz bins), 50% overlap (16 ms hop).
 // Tone bins: 12-14 (~406 Hz), 21-24 (~703 Hz), 66-68 (~2109 Hz), 89-91 (~2812 Hz).
@@ -33,12 +35,14 @@ constexpr float PI = 3.14159265359f;
 constexpr int NUM_TONES = 4;
 constexpr int AVG_WINDOWS = 16;  // ~272 ms of overlapped windows
 constexpr float MIN_PROMINENCE_DB = 16.0f;
+constexpr float MIN_2812_PROMINENCE_DB = 6.0f;
 // Noise floor added to both sides of the prominence ratio: white noise of
 // ~2 LSB RMS (Hann window power gain 3N/8). Below this a spectrum is "silence",
 // which keeps digital silence and synthetic noise-free tones from scoring.
 constexpr float FLOOR_LSB = 2.0f;
 constexpr float FLOOR_POWER = (float) AVG_WINDOWS * (3.0f * N / 8.0f) * FLOOR_LSB * FLOOR_LSB;
 constexpr int TONE_REQUIRED = 1;  // index of the 703 Hz tone, which must always be prominent
+constexpr int TONE_2812 = 3;
 constexpr int MIN_TONES = 3;      // of NUM_TONES (including the required one) simultaneously prominent
 constexpr int HIT_COUNT_ON = 3;
 constexpr uint32_t HIT_GAP_RESET_MS = 500;
@@ -183,7 +187,7 @@ class Detector {
         }
     float needed = others[MIN_TONES - 2];
     out.score = out.prom[TONE_REQUIRED] < needed ? out.prom[TONE_REQUIRED] : needed;
-    out.buzzy = out.score > MIN_PROMINENCE_DB;
+    out.buzzy = out.score > MIN_PROMINENCE_DB && out.prom[TONE_2812] > MIN_2812_PROMINENCE_DB;
     out.r407 = out.prom[0];
     out.r703 = out.prom[1];
     out.rhigh = out.prom[2] > out.prom[3] ? out.prom[2] : out.prom[3];
