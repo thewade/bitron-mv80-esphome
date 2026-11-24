@@ -1,7 +1,7 @@
 substitutions:
   name: "m5stack-atom-echo"
   friendly_name: M5Stack Atom Echo
-  component_source: github://thewade/bitron-mv80-esphome@rework
+  component_source: github://thewade/bitron-mv80-esphome@main
   buzzer_min_prominence_db: "16.0"
   buzzer_min_2812_prominence_db: "6.0"
   buzzer_hit_count_on: "3"

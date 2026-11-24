@@ -1,0 +1,13 @@
+substitutions:
+  capture_token: !secret capture_token
+
+packages:
+  intercom: !include packages/m5stack-atom-echo.yaml
+
+api:
+  encryption:
+    key: !secret m5stack_atom_echo__encryption_key
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password

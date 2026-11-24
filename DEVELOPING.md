@@ -17,12 +17,12 @@ Run the tests before flashing firmware. Only commit recordings that are suitable
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on pushes, pull requests, manual dispatch, and Mondays at 09:00 UTC. It runs the host tests and compiles the firmware against the `latest` and `beta` ESPHome container images. The stable build must pass; beta failures are allowed. CI generates placeholder secrets and caches the ESPHome toolchain. It does not flash a device.
 
-The development YAML includes the package from this checkout, while the package
-defaults to fetching the external component from GitHub. To build the component
-in this checkout instead, pass `-s component_source components` before the
-ESPHome command, with the configuration directory set to `esphome/`. CI and the
-flash helper do this so they compile local changes. The README shows the remote
-package import for installations outside this checkout.
+The user-facing YAML imports the package from GitHub. For local development,
+`esphome/.m5stack-atom-echo-local.yaml` includes the package from this checkout.
+To build the external component in this checkout as well, pass
+`-s component_source components` before the ESPHome command, with the
+configuration directory set to `esphome/`. CI and the flash helper do both so
+they compile local changes.
 
 ## Local configuration
 

@@ -14,7 +14,7 @@ substitutions:
   capture_token: !secret capture_token
 
 packages:
-  intercom: github://thewade/bitron-mv80-esphome/esphome/packages/m5stack-atom-echo.yaml@rework
+  intercom: github://thewade/bitron-mv80-esphome/esphome/packages/m5stack-atom-echo.yaml@main
 
 api:
   encryption:
@@ -26,9 +26,8 @@ wifi:
 ```
 
 ESPHome downloads the package and required external component from GitHub when
-it builds; no header files need to be copied. The repository's
-[`esphome/m5stack-atom-echo.yaml`](esphome/m5stack-atom-echo.yaml) is the
-equivalent local configuration for development.
+it builds; no header files need to be copied. You can also copy
+[`esphome/m5stack-atom-echo.yaml`](esphome/m5stack-atom-echo.yaml) directly.
 
 Add these entries to your ESPHome `secrets.yaml`:
 

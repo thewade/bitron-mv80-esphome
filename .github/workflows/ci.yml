@@ -41,7 +41,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: esphome/.esphome
-          key: esphome-${{ matrix.esphome }}-${{ hashFiles('esphome/m5stack-atom-echo.yaml', 'esphome/packages/m5stack-atom-echo.yaml') }}
+          key: esphome-${{ matrix.esphome }}-${{ hashFiles('esphome/.m5stack-atom-echo-local.yaml', 'esphome/packages/m5stack-atom-echo.yaml') }}
           restore-keys: |
             esphome-${{ matrix.esphome }}-
 
@@ -52,4 +52,4 @@ jobs:
           docker run --rm -v "$PWD":/config -u "$(id -u):$(id -g)" \
             -e HOME=/config/.esphome/home -e XDG_CACHE_HOME=/config/.esphome/home/.cache \
             ghcr.io/esphome/esphome:${{ matrix.esphome }} \
-            -s component_source components compile m5stack-atom-echo.yaml
+            -s component_source components compile .m5stack-atom-echo-local.yaml

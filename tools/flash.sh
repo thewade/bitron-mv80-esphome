@@ -28,7 +28,7 @@ start=$(date +%s)
 [ "$pull" = 1 ] && docker pull -q ghcr.io/esphome/esphome:latest >/dev/null
 
 if ! docker run --rm --net=host -v "$root/esphome":/config ghcr.io/esphome/esphome:latest \
-    -s component_source components run m5stack-atom-echo.yaml --device "$DEVICE_IP" --no-logs >"$log" 2>&1; then
+    -s component_source components run .m5stack-atom-echo-local.yaml --device "$DEVICE_IP" --no-logs >"$log" 2>&1; then
   echo "FAILED after $(( $(date +%s) - start ))s; last lines of $log:"
   tail -n 15 "$log"
   exit 1

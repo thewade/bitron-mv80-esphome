@@ -2,7 +2,7 @@ substitutions:
   capture_token: !secret capture_token
 
 packages:
-  intercom: !include packages/m5stack-atom-echo.yaml
+  intercom: github://thewade/bitron-mv80-esphome/esphome/packages/m5stack-atom-echo.yaml@main
 
 api:
   encryption:
