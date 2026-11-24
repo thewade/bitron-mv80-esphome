@@ -3,12 +3,14 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
+import sys
 import tempfile
 import types
 import unittest
 import wave
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 
 def module(name):
@@ -19,6 +21,115 @@ def module(name):
 
 
 capture, review = module('capture'), module('review')
+with patch.dict(sys.modules, {'capture': capture, 'review': review}):
+    record = module('record')
+
+
+class RecordingSessionTests(unittest.TestCase):
+    def test_startup_connection_refusal_retries_quickly(self):
+        sock = MagicMock()
+        sock.recv.side_effect = [b'\x01\x02', KeyboardInterrupt]
+        with tempfile.TemporaryDirectory() as directory:
+            prefix = str(Path(directory) / 'session')
+            with patch.object(capture.socket, 'create_connection',
+                              side_effect=[ConnectionRefusedError('not ready'), sock]), \
+                 patch.object(capture.time, 'sleep') as sleep, \
+                 contextlib.redirect_stdout(io.StringIO()):
+                capture.record_chunked('device', prefix, None, 1800, 'token')
+            sleep.assert_called_once_with(1)
+            wavs = list(Path(directory).glob('session_*.wav'))
+            self.assertEqual(len(wavs), 1)
+            with wave.open(str(wavs[0])) as wav:
+                self.assertEqual(wav.readframes(1), b'\x01\x02')
+
+    def test_startup_retry_backs_off_when_device_remains_unavailable(self):
+        elapsed = [0]
+
+        def sleep(seconds):
+            elapsed[0] += seconds
+
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(capture.socket, 'create_connection',
+                          side_effect=ConnectionRefusedError('not ready')), \
+             patch.object(capture.time, 'monotonic', side_effect=lambda: elapsed[0]), \
+             patch.object(capture.time, 'sleep', side_effect=sleep) as pauses, \
+             contextlib.redirect_stdout(io.StringIO()):
+            capture.record_chunked('device', str(Path(directory) / 'session'), 12, 1800, 'token')
+        self.assertEqual([call.args[0] for call in pauses.call_args_list], [1] * 10 + [10])
+
+    def test_connection_failures_after_success_keep_existing_retry_delay(self):
+        sock = MagicMock()
+        sock.recv.return_value = b''
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(capture.socket, 'create_connection',
+                          side_effect=[sock, ConnectionRefusedError('down'), KeyboardInterrupt]), \
+             patch.object(capture.time, 'sleep') as pauses, \
+             contextlib.redirect_stdout(io.StringIO()):
+            capture.record_chunked('device', str(Path(directory) / 'session'), None, 1800, 'token')
+        self.assertEqual([call.args[0] for call in pauses.call_args_list], [2, 10])
+
+    def test_session_manages_switch_and_records(self):
+        env = {'DEVICE_IP': 'device', 'HA_URL': 'http://example.invalid/',
+               'HA_TOKEN': 'private', 'HA_CAPTURE_ENTITY': 'switch.capture'}
+        calls = []
+
+        def request(req, timeout):
+            calls.append((req.full_url, json.loads(req.data), req.get_method(),
+                          req.get_header('Authorization'), timeout))
+            return io.BytesIO(b'[]')
+
+        def recording(host, prefix, limit, chunk, token):
+            calls.append((host, prefix, limit, chunk, token))
+
+        with patch.object(review, 'config', return_value=env), \
+             patch.object(capture, 'load_token', return_value='capture-token'), \
+             patch.object(capture, 'record_chunked', side_effect=recording), \
+             patch.object(record.urllib.request, 'urlopen', side_effect=request), \
+             contextlib.redirect_stdout(io.StringIO()):
+            record.main()
+        self.assertEqual(calls, [
+            ('http://example.invalid/api/services/switch/turn_on',
+             {'entity_id': 'switch.capture'}, 'POST', 'Bearer private', 30),
+            ('device', str(review.ROOT / 'samples' / 'session'), 86400, 1800, 'capture-token'),
+            ('http://example.invalid/api/services/switch/turn_off',
+             {'entity_id': 'switch.capture'}, 'POST', 'Bearer private', 30),
+        ])
+
+    def test_reads_dotenv_and_respects_environment_override(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / '.env').write_text(
+                'DEVICE_IP=file-device\nHA_URL="http://example.invalid"\n'
+                'HA_TOKEN=private\nHA_CAPTURE_ENTITY=switch.capture\n')
+            with patch.object(review, 'ROOT', root), \
+                 patch.dict(os.environ, {'DEVICE_IP': 'env-device'}, clear=True), \
+                 patch.object(capture, 'load_token', return_value='token'), \
+                 patch.object(capture, 'record_chunked') as recording, \
+                 patch.object(record, 'set_capture_switch') as switch, \
+                 contextlib.redirect_stdout(io.StringIO()):
+                record.main()
+            self.assertEqual(recording.call_args.args,
+                             ('env-device', str(root / 'samples' / 'session'), 86400, 1800, 'token'))
+            self.assertEqual([call.args[1] for call in switch.call_args_list], [True, False])
+
+    def test_switch_is_turned_off_if_recording_fails(self):
+        env = {'DEVICE_IP': 'device', 'HA_URL': 'http://example.invalid',
+               'HA_TOKEN': 'private', 'HA_CAPTURE_ENTITY': 'switch.capture'}
+        with patch.object(review, 'config', return_value=env), \
+             patch.object(capture, 'load_token', return_value='token'), \
+             patch.object(capture, 'record_chunked', side_effect=OSError('disk error')), \
+             patch.object(record, 'set_capture_switch') as switch, \
+             contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(OSError, 'disk error'):
+                record.main()
+        self.assertEqual([call.args[1] for call in switch.call_args_list], [True, False])
+
+    def test_missing_settings_do_not_touch_switch(self):
+        with patch.object(review, 'config', return_value={}), \
+             patch.object(record, 'set_capture_switch') as switch:
+            with self.assertRaisesRegex(ValueError, 'DEVICE_IP.*HA_URL.*HA_TOKEN.*HA_CAPTURE_ENTITY'):
+                record.main()
+        switch.assert_not_called()
 
 
 class ReviewTests(unittest.TestCase):

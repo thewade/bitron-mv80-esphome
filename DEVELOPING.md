@@ -31,6 +31,9 @@ For the flash helper, create a `.env` file in the repository root. It is gitigno
 | Variable | Purpose |
 | --- | --- |
 | `DEVICE_IP` | Device address for OTA flashing; required. |
+| `HA_URL`, `HA_TOKEN` | Home Assistant URL and long-lived access token for capture and review. |
+| `HA_CAPTURE_ENTITY` | Audio Capture switch entity ID for automatic recording. |
+| `HA_ENTITY` | Detection binary sensor entity ID for event review. |
 
 ## Tools
 
@@ -48,7 +51,10 @@ Use `--no-pull` to reuse the local image. Full build output is written to `/tmp/
 
 ### Record test samples
 
-Requires Python 3 and access to the device's TCP port 6055. Enable the device's **Audio Capture** switch first; it resets to off after each reboot. The tool reads the shared token from `CAPTURE_TOKEN` or `capture_token` in `esphome/secrets.yaml`.
+Requires Python 3 and access to the device's TCP port 6055. For manual capture,
+enable the device's **Audio Capture** switch first; it resets to off after each
+reboot. The tools read the shared token from `CAPTURE_TOKEN` or `capture_token`
+in `esphome/secrets.yaml`.
 
 ```sh
 python3 tools/capture.py <device-ip> samples/buzzer_new.wav 10
@@ -59,10 +65,27 @@ The tool records 16 kHz mono PCM as WAV. Use `samples/negative_new.wav` for a re
 For a longer recording with a new file every 30 minutes:
 
 ```sh
+python3 tools/record.py
+```
+
+This uses `DEVICE_IP`, `HA_URL`, `HA_TOKEN`, and `HA_CAPTURE_ENTITY` from `.env`
+(environment variables take precedence), turns on the HA Audio Capture switch,
+and turns it off when recording stops, including on Ctrl-C. It records for up to
+24 hours. If the device reboots, the switch resets to off; stop and restart the
+command to enable it again. A forced termination cannot turn the switch off.
+
+To manage the switch manually instead:
+
+```sh
 python3 tools/capture.py <device-ip> samples/session --chunk 30 86400
 ```
 
-This records for up to 24 hours, reconnects after connection drops, and writes timestamped WAV files plus `samples/session.log`. Omit the duration to record until interrupted. Session files are gitignored. Streaming is unencrypted; use a trusted network.
+Both commands reconnect after connection drops and write timestamped WAV files,
+timing sidecars, and `samples/session.log`. For the manual command, omit the
+duration to record until interrupted. Session files are gitignored and may contain
+voices. Initial connection failures retry every second for 10 seconds, then every
+10 seconds; later connection failures retry every 10 seconds. Streaming is
+unencrypted; use a trusted network.
 
 ### Review Home Assistant events and recordings
 
@@ -71,8 +94,8 @@ This records for up to 24 hours, reconnects after connection drops, and writes t
 entity ID) to the local `.env`, or set them in the environment. Environment values
 take precedence. Simple shell assignments are supported; shell expressions are not
 executed. `--entity` overrides `HA_ENTITY`. These are Home Assistant entity IDs,
-not device IDs. If needed for manual capture-switch control, keep its entity ID
-in `.env` as `HA_CAPTURE_ENTITY`; the tools do not change that switch.
+not device IDs. `tools/record.py` uses `HA_CAPTURE_ENTITY` to manage the
+capture switch; `tools/review.py` does not change it.
 
 All event timestamps must include a UTC offset to avoid timezone ambiguity:
 

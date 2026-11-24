@@ -122,6 +122,7 @@ def record_single(host, out, limit, token):
 def record_chunked(host, prefix, limit, chunk_s, token):
     """Stream to disk in time-stamped files; every (re)connect starts a new file."""
     start = time.monotonic()
+    connected_once = False
     log = open(f"{prefix}.log", "a", buffering=1)
 
     def note(msg):
@@ -137,10 +138,12 @@ def record_chunked(host, prefix, limit, chunk_s, token):
                 sock.sendall(token.encode())
                 sock.settimeout(5)
             except OSError as e:
-                note(f"connect failed ({e}); is the Audio Capture switch on? retrying")
-                time.sleep(10)
+                retry = 1 if not connected_once and time.monotonic() - start < 10 else 10
+                note(f"connect failed ({e}); is the Audio Capture switch on? retrying in {retry}s")
+                time.sleep(retry)
                 continue
 
+            connected_once = True
             wav, frames, name = None, 0, None
             pending = b''
             last_data = last_print = time.time()
@@ -181,7 +184,11 @@ def record_chunked(host, prefix, limit, chunk_s, token):
             time.sleep(2)
     except KeyboardInterrupt:
         pass
-    note("stopped")
+    finally:
+        try:
+            note("stopped")
+        finally:
+            log.close()
 
 
 def main():
